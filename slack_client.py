@@ -161,19 +161,25 @@ def build_weekly_report(data: dict) -> list[dict]:
 
 def build_cod_alert(order: dict, new_status: str) -> list[dict]:
     """Build a Slack alert for a COD status change."""
-    emoji = ":white_check_mark:" if new_status == "delivered" else ":warning:"
-    status_text = {
-        "delivered": "ENTREGADO",
-        "in_transit": "En transito",
-        "out_for_delivery": "En reparto",
-        "failure": "FALLIDO",
-        "attempted_delivery": "Intento de entrega fallido",
-    }.get(new_status, new_status)
+    delivered = new_status in ("ENTREGADO", "delivered")
+    returned = new_status in ("DEVUELTO", "returned")
+
+    if delivered:
+        emoji = ":white_check_mark:"
+    elif returned:
+        emoji = ":x:"
+    else:
+        emoji = ":package:"
 
     text = (
-        f"{emoji} *COD {order.get('order_number', '')}* — {status_text}\n"
+        f"{emoji} *COD {order.get('order_number', '')}* — {new_status}\n"
         f"  Cliente: {order.get('customer_name', 'N/A')}\n"
         f"  Importe: {_fmt_eur(float(order.get('total_price', 0)))}\n"
-        f"  Courier: {order.get('tracking_company', 'N/A')}"
+        f"  Courier: {order.get('tracking_company', 'Correos Express')}"
     )
+
+    tracking_detail = order.get("tracking_detail")
+    if tracking_detail:
+        text += f"\n  Tracking: {tracking_detail}"
+
     return [{"type": "section", "text": {"type": "mrkdwn", "text": text}}]

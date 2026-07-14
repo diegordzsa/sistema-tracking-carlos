@@ -1,13 +1,28 @@
-"""COD checker: re-check pending COD orders and update delivery status."""
+"""COD checker: verify delivery status via Correos Express tracking + Shopify."""
 import logging
 
 import config
 import shopify_client
 import order_store
 import slack_client
+import tracking_checker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
+
+STATUS_LABELS = {
+    "delivered": "ENTREGADO",
+    "out_for_delivery": "En reparto",
+    "at_destination": "En destino",
+    "in_transit": "En transito",
+    "shipped": "Enviado",
+    "info_received": "Informado",
+    "returned": "DEVUELTO",
+    "incident": "INCIDENCIA",
+    "failed_attempt": "Intento fallido",
+    "pending": "Pendiente",
+    "unknown": "Desconocido",
+}
 
 
 def run():
@@ -24,47 +39,59 @@ def run():
 
     for entry in pending:
         order_id = entry["order_id"]
+        tracking_number = entry.get("tracking_number")
         old_status = entry.get("cod_delivery_status", "unknown")
 
-        order = shopify_client.fetch_order_by_id(order_id)
-        if not order:
-            logger.warning("Could not fetch order %s", order_id)
+        if not tracking_number:
+            order = shopify_client.fetch_order_by_id(order_id)
+            if order:
+                fi = shopify_client.get_fulfillment_info(order)
+                tracking_number = fi.get("tracking_number")
+
+        if not tracking_number:
+            logger.warning("No tracking number for order %s", entry.get("order_number"))
             continue
 
-        new_status = shopify_client.get_cod_delivery_status(order)
-        fulfillment = shopify_client.get_fulfillment_info(order)
+        tracking_result = tracking_checker.check_tracking(tracking_number)
+        if not tracking_result:
+            logger.warning("Could not check tracking for %s", tracking_number)
+            continue
+
+        new_status = tracking_result["status"]
 
         if new_status == old_status:
             continue
 
-        logger.info("Order %s: %s -> %s", entry["order_number"], old_status, new_status)
+        logger.info(
+            "Order %s: %s -> %s (%s, %s)",
+            entry.get("order_number"),
+            old_status,
+            new_status,
+            tracking_result["location"],
+            tracking_result["date"],
+        )
 
         updates = {
             "cod_delivery_status": new_status,
-            "financial_status": order.get("financial_status", ""),
-            "fulfillment_status": fulfillment["fulfillment_status"],
-            "tracking_company": fulfillment["tracking_company"],
-            "tracking_number": fulfillment["tracking_number"],
-            "tracking_url": fulfillment["tracking_url"],
+            "tracking_status_raw": tracking_result["status_raw"],
+            "tracking_location": tracking_result["location"],
+            "tracking_last_update": tracking_result["date"],
+            "tracking_progress": tracking_result["progress"],
             "cod_verified": new_status == "delivered",
         }
 
         order_store.update_order(order_id, updates)
 
-        status_labels = {
-            "delivered": "ENTREGADO",
-            "returned": "DEVUELTO",
-            "shipped": "Enviado",
-            "pending": "Pendiente",
-        }
-        label = status_labels.get(new_status, new_status)
-
+        label = STATUS_LABELS.get(new_status, new_status)
         alert_entry = {**entry, **updates}
+        alert_entry["tracking_detail"] = (
+            f"{tracking_result['location']} — {tracking_result['date']}"
+        )
         alerts.append(slack_client.build_cod_alert(alert_entry, label))
 
     if alerts:
         all_blocks = [
-            {"type": "header", "text": {"type": "plain_text", "text": "Actualizaciones COD"}},
+            {"type": "header", "text": {"type": "plain_text", "text": "Actualizaciones COD — Correos Express"}},
             {"type": "divider"},
         ]
         for alert_blocks in alerts:
@@ -73,7 +100,7 @@ def run():
         slack_client.send_to_slack(all_blocks, fallback_text="Actualizaciones COD")
         logger.info("Sent %d COD alerts", len(alerts))
     else:
-        logger.info("No COD status changes")
+        logger.info("No COD status changes detected")
 
 
 if __name__ == "__main__":

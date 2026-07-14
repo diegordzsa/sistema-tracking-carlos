@@ -1,4 +1,4 @@
-"""Weekly report: aggregate last 7 days and send performance summary."""
+"""Weekly report: aggregate last 7 days, check COD tracking, send to Slack."""
 import logging
 from collections import Counter
 from datetime import datetime, timedelta
@@ -6,9 +6,53 @@ from datetime import datetime, timedelta
 import config
 import order_store
 import slack_client
+import tracking_checker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
+
+TRACKING_STATUS_LABELS = {
+    "delivered": "Entregado",
+    "out_for_delivery": "En reparto",
+    "at_destination": "En destino",
+    "in_transit": "En transito",
+    "shipped": "Enviado",
+    "info_received": "Informado",
+    "returned": "Devuelto",
+    "incident": "Incidencia",
+    "failed_attempt": "Intento fallido",
+    "unknown": "Desconocido",
+}
+
+
+def _check_all_cod_tracking(cod_entries: list[dict]) -> list[dict]:
+    """Check Correos Express tracking for all COD orders and update the log."""
+    for entry in cod_entries:
+        tn = entry.get("tracking_number")
+        if not tn:
+            continue
+
+        result = tracking_checker.check_tracking(tn)
+        if not result:
+            continue
+
+        new_status = result["status"]
+        old_status = entry.get("cod_delivery_status")
+
+        if new_status != old_status:
+            updates = {
+                "cod_delivery_status": new_status,
+                "tracking_status_raw": result["status_raw"],
+                "tracking_location": result["location"],
+                "tracking_last_update": result["date"],
+                "tracking_progress": result["progress"],
+                "cod_verified": new_status == "delivered",
+            }
+            order_store.update_order(entry["order_id"], updates)
+            entry.update(updates)
+            logger.info("Order %s: %s -> %s", entry.get("order_number"), old_status, new_status)
+
+    return cod_entries
 
 
 def run():
@@ -27,13 +71,18 @@ def run():
     paid = [e for e in week_entries if e.get("payment_type") == "paid"]
     cod = [e for e in week_entries if e.get("payment_type") == "cod"]
 
-    cod_delivered = sum(1 for e in cod if e.get("cod_verified", False))
-    cod_failed = sum(1 for e in cod if e.get("shipment_status") in ("failure", "attempted_delivery"))
-    cod_pending = len(cod) - cod_delivered - cod_failed
+    all_cod = [e for e in entries if e.get("payment_type") == "cod"]
+    logger.info("Checking tracking for %d total COD orders", len(all_cod))
+    all_cod = _check_all_cod_tracking(all_cod)
 
-    pending_details = [
-        e for e in cod
-        if not e.get("cod_verified", False) and e.get("shipment_status") not in ("failure", "attempted_delivery")
+    cod_delivered = sum(1 for e in all_cod if e.get("cod_delivery_status") == "delivered")
+    cod_returned = sum(1 for e in all_cod if e.get("cod_delivery_status") == "returned")
+    cod_in_transit = sum(1 for e in all_cod if e.get("cod_delivery_status") in ("in_transit", "shipped", "out_for_delivery", "at_destination", "info_received"))
+    cod_other = len(all_cod) - cod_delivered - cod_returned - cod_in_transit
+
+    non_delivered = [
+        e for e in all_cod
+        if e.get("cod_delivery_status") != "delivered"
     ]
 
     medium_counter = Counter(e.get("utm_medium") for e in week_entries)
@@ -46,10 +95,12 @@ def run():
         "paid_amount": sum(float(e.get("total_price", 0)) for e in paid),
         "cod_count": len(cod),
         "cod_amount": sum(float(e.get("total_price", 0)) for e in cod),
+        "all_cod_total": len(all_cod),
         "cod_delivered": cod_delivered,
-        "cod_pending": cod_pending,
-        "cod_failed": cod_failed,
-        "pending_details": pending_details,
+        "cod_in_transit": cod_in_transit,
+        "cod_returned": cod_returned,
+        "cod_other": cod_other,
+        "non_delivered_details": non_delivered,
         "by_medium": dict(medium_counter),
     }
 

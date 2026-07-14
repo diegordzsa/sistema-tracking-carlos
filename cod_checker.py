@@ -1,28 +1,16 @@
-"""COD checker: verify delivery status via Correos Express tracking + Shopify."""
+"""COD checker: verify delivery status via Correos Express tracking + Shopify.
+
+Updates the JSONL log silently — COD status is reported in the weekly report.
+"""
 import logging
 
 import config
 import shopify_client
 import order_store
-import slack_client
 import tracking_checker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
-
-STATUS_LABELS = {
-    "delivered": "ENTREGADO",
-    "out_for_delivery": "En reparto",
-    "at_destination": "En destino",
-    "in_transit": "En transito",
-    "shipped": "Enviado",
-    "info_received": "Informado",
-    "returned": "DEVUELTO",
-    "incident": "INCIDENCIA",
-    "failed_attempt": "Intento fallido",
-    "pending": "Pendiente",
-    "unknown": "Desconocido",
-}
 
 
 def run():
@@ -35,7 +23,7 @@ def run():
         logger.info("No pending COD orders")
         return
 
-    alerts: list[list[dict]] = []
+    updated = 0
 
     for entry in pending:
         order_id = entry["order_id"]
@@ -81,26 +69,9 @@ def run():
         }
 
         order_store.update_order(order_id, updates)
+        updated += 1
 
-        label = STATUS_LABELS.get(new_status, new_status)
-        alert_entry = {**entry, **updates}
-        alert_entry["tracking_detail"] = (
-            f"{tracking_result['location']} — {tracking_result['date']}"
-        )
-        alerts.append(slack_client.build_cod_alert(alert_entry, label))
-
-    if alerts:
-        all_blocks = [
-            {"type": "header", "text": {"type": "plain_text", "text": "Actualizaciones COD — Correos Express"}},
-            {"type": "divider"},
-        ]
-        for alert_blocks in alerts:
-            all_blocks.extend(alert_blocks)
-            all_blocks.append({"type": "divider"})
-        slack_client.send_to_slack(all_blocks, fallback_text="Actualizaciones COD")
-        logger.info("Sent %d COD alerts", len(alerts))
-    else:
-        logger.info("No COD status changes detected")
+    logger.info("Updated %d COD orders", updated)
 
 
 if __name__ == "__main__":

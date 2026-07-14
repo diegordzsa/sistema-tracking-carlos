@@ -80,18 +80,6 @@ def build_daily_report(data: dict) -> list[dict]:
             "text": {"type": "mrkdwn", "text": "*Canales:*\n" + "\n".join(lines)}
         })
 
-    cod_updates = data.get("cod_updates", [])
-    if cod_updates:
-        blocks.append({"type": "divider"})
-        lines = []
-        for u in cod_updates:
-            status = u.get("shipment_status", "desconocido")
-            lines.append(f"  - {u['order_number']}: _{status}_")
-        blocks.append({
-            "type": "section",
-            "text": {"type": "mrkdwn", "text": "*Actualizaciones COD:*\n" + "\n".join(lines)}
-        })
-
     return blocks
 
 
@@ -99,8 +87,8 @@ def build_weekly_report(data: dict) -> list[dict]:
     """Build Slack blocks for the weekly report.
 
     data keys: start_date, end_date, total_orders, paid_count, paid_amount,
-               cod_count, cod_amount, cod_delivered, cod_pending, cod_failed,
-               pending_details, by_medium
+               cod_count, cod_amount, all_cod_total, cod_delivered, cod_in_transit,
+               cod_returned, cod_other, non_delivered_details, by_medium
     """
     start_str = _fmt_date(data["start_date"])
     end_str = _fmt_date(data["end_date"])
@@ -119,7 +107,7 @@ def build_weekly_report(data: dict) -> list[dict]:
     ]
 
     ventas = (
-        f"*VENTAS*\n"
+        f"*VENTAS DE LA SEMANA*\n"
         f"  Total pedidos: {data['total_orders']}\n"
         f"  - Pagados: {paid_n} ({_fmt_eur(paid_amt)})\n"
         f"  - Contrareembolso: {cod_n} ({_fmt_eur(cod_amt)})\n"
@@ -127,25 +115,45 @@ def build_weekly_report(data: dict) -> list[dict]:
     )
     blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": ventas}})
 
+    all_cod = data.get("all_cod_total", 0)
     cod_delivered = data.get("cod_delivered", 0)
-    cod_pending = data.get("cod_pending", 0)
-    cod_failed = data.get("cod_failed", 0)
-    if cod_n > 0:
-        cod_section = (
-            f"*CONTRAREEMBOLSO*\n"
-            f"  Entregados: {cod_delivered} de {cod_n}\n"
-            f"  Pendientes: {cod_pending}\n"
-            f"  Fallidos/devueltos: {cod_failed}"
+    cod_in_transit = data.get("cod_in_transit", 0)
+    cod_returned = data.get("cod_returned", 0)
+    cod_other = data.get("cod_other", 0)
+
+    if all_cod > 0:
+        blocks.append({"type": "divider"})
+        summary = (
+            f"*CONTRAREEMBOLSO (todos los pedidos COD)*\n"
+            f"  De {all_cod} pedidos: *{cod_delivered} entregados*, "
+            f"{cod_in_transit} en camino, {cod_returned} devueltos"
         )
-        pending_details = data.get("pending_details", [])
-        for p in pending_details:
-            tracking = p.get("tracking_company", "sin tracking")
-            status = p.get("shipment_status", "desconocido")
-            cod_section += f"\n    - {p['order_number']}: {tracking}, _{status}_"
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": cod_section}})
+        if cod_other > 0:
+            summary += f", {cod_other} pendientes"
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": summary}})
+
+        non_delivered = data.get("non_delivered_details", [])
+        if non_delivered:
+            lines = []
+            for o in non_delivered:
+                status = o.get("cod_delivery_status", "unknown")
+                status_raw = o.get("tracking_status_raw", status)
+                location = o.get("tracking_location", "")
+                last_update = o.get("tracking_last_update", "")
+                detail = f"  - #{o.get('order_number', '?')} — _{status_raw}_"
+                if location:
+                    detail += f" ({location})"
+                if last_update:
+                    detail += f" — {last_update}"
+                lines.append(detail)
+            blocks.append({
+                "type": "section",
+                "text": {"type": "mrkdwn", "text": "*Detalle no entregados:*\n" + "\n".join(lines)}
+            })
 
     by_medium = data.get("by_medium", {})
     if by_medium:
+        blocks.append({"type": "divider"})
         total = sum(by_medium.values())
         lines = []
         for medium, count in sorted(by_medium.items(), key=lambda x: -x[1]):

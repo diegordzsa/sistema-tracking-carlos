@@ -85,7 +85,10 @@ def run():
         if e.get("cod_delivery_status") != "delivered"
     ]
 
-    medium_counter = Counter(e.get("utm_medium") for e in week_entries)
+    excluded_mediums = {None, "", "direct", "paid"}
+    medium_counter = Counter(
+        e.get("utm_medium") for e in week_entries if e.get("utm_medium") not in excluded_mediums
+    )
 
     report_data = {
         "start_date": start_date,

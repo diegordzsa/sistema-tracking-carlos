@@ -12,15 +12,18 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger(__name__)
 
 
-def run():
+def run(target_date: str | None = None):
     config.validate_config()
 
-    now = datetime.now(config.TIMEZONE)
-    yesterday = now - timedelta(days=1)
-    start = yesterday.replace(hour=0, minute=0, second=0, microsecond=0)
-    end = yesterday.replace(hour=23, minute=59, second=59, microsecond=0)
+    if target_date:
+        day = datetime.strptime(target_date, "%Y-%m-%d").replace(tzinfo=config.TIMEZONE)
+    else:
+        day = datetime.now(config.TIMEZONE) - timedelta(days=1)
 
-    logger.info("Fetching orders for %s", start.date())
+    start = day.replace(hour=0, minute=0, second=0, microsecond=0)
+    end = day.replace(hour=23, minute=59, second=59, microsecond=0)
+
+    logger.info("Fetching orders for %s", day.date())
     all_orders = shopify_client.fetch_orders(start.isoformat(), end.isoformat())
     logger.info("Total orders in range: %d", len(all_orders))
 
@@ -33,10 +36,13 @@ def run():
     paid = [r for r in records if r["payment_type"] == "paid"]
     cod = [r for r in records if r["payment_type"] == "cod"]
 
-    medium_counter = Counter(r["utm_medium"] for r in records)
+    excluded_mediums = {None, "", "direct", "paid"}
+    medium_counter = Counter(
+        r["utm_medium"] for r in records if r["utm_medium"] not in excluded_mediums
+    )
 
     report_data = {
-        "date": yesterday,
+        "date": day,
         "total_orders": len(records),
         "paid_count": len(paid),
         "paid_amount": sum(float(r["total_price"]) for r in paid),
@@ -52,4 +58,6 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    import sys
+    date_arg = sys.argv[1] if len(sys.argv) > 1 else None
+    run(date_arg)

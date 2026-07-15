@@ -14,6 +14,11 @@ SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 
 ZADARMA_API_KEY = os.getenv("ZADARMA_API_KEY")
 ZADARMA_API_SECRET = os.getenv("ZADARMA_API_SECRET")
+ZADARMA_SIP = os.getenv("ZADARMA_SIP", "141683")
+
+
+def has_zadarma() -> bool:
+    return bool(ZADARMA_API_KEY and ZADARMA_API_SECRET)
 
 DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"
 
@@ -25,6 +30,7 @@ CURRENCY = "EUR"
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 ORDERS_LOG = os.path.join(DATA_DIR, "orders_log.jsonl")
+CALLS_LOG = os.path.join(DATA_DIR, "calls_log.jsonl")
 
 
 def validate_config():

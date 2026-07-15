@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 
 import config
 import order_store
+import call_store
 import slack_client
 import tracking_checker
 
@@ -108,6 +109,34 @@ def run():
     }
 
     blocks = slack_client.build_weekly_report(report_data)
+
+    if config.has_zadarma():
+        call_entries = call_store.read_log()
+        week_calls = call_store.filter_by_date_range(
+            call_entries,
+            start_date.strftime("%Y-%m-%d 00:00:00"),
+            end_date.strftime("%Y-%m-%d 23:59:59"),
+        )
+        if week_calls:
+            answered = [c for c in week_calls if c.get("disposition") == "answered"]
+            missed = [c for c in week_calls if c.get("disposition") in ("no_answer", "cancel")]
+            busy = [c for c in week_calls if c.get("disposition") == "busy"]
+            total_dur = sum(c.get("duration_seconds", 0) for c in answered)
+            avg_dur = total_dur // len(answered) if answered else 0
+            linked = sum(1 for c in week_calls if c.get("matched_order_id"))
+            total_orders = len(week_entries) or 1
+            call_data = {
+                "total": len(week_calls),
+                "answered": len(answered),
+                "missed": len(missed),
+                "busy": len(busy),
+                "total_duration": total_dur,
+                "avg_duration": avg_dur,
+                "linked_orders": linked,
+                "calls_per_order": round(len(week_calls) / total_orders, 1),
+            }
+            blocks.extend(slack_client.build_call_section(call_data))
+
     slack_client.send_to_slack(blocks, fallback_text=f"Reporte semanal {config.CLOSER_NAME}")
     logger.info("Weekly report sent")
 

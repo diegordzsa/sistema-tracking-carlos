@@ -225,6 +225,7 @@ def build_order_record(order: dict) -> dict:
         "order_number": order.get("name", ""),
         "created_at": order.get("created_at", ""),
         "customer_name": _customer_name(order),
+        "customer_phone": _customer_phone(order),
         "landing_site": order.get("landing_site") or "",
         "source_name": order.get("source_name", ""),
         "tags": order.get("tags", ""),
@@ -251,3 +252,15 @@ def _customer_name(order: dict) -> str:
     first = customer.get("first_name", "")
     last = customer.get("last_name", "")
     return f"{first} {last}".strip() or "N/A"
+
+
+def _customer_phone(order: dict) -> str:
+    customer = order.get("customer") or {}
+    phone = customer.get("phone") or ""
+    if not phone:
+        shipping = order.get("shipping_address") or {}
+        phone = shipping.get("phone") or ""
+    if not phone:
+        billing = order.get("billing_address") or {}
+        phone = billing.get("phone") or ""
+    return phone

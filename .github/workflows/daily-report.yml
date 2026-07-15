@@ -31,12 +31,14 @@ jobs:
           SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
           SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          ZADARMA_API_KEY: ${{ secrets.ZADARMA_API_KEY }}
+          ZADARMA_API_SECRET: ${{ secrets.ZADARMA_API_SECRET }}
         run: python daily_report.py
 
       - name: Commit data
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add data/orders_log.jsonl
+          git add data/orders_log.jsonl data/calls_log.jsonl
           git diff --staged --quiet || git commit -m "Update orders $(date -u +%Y-%m-%d)"
           git push

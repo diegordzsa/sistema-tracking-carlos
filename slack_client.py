@@ -167,6 +167,132 @@ def build_weekly_report(data: dict) -> list[dict]:
     return blocks
 
 
+def _fmt_duration(seconds: int) -> str:
+    if seconds >= 3600:
+        h = seconds // 3600
+        m = (seconds % 3600) // 60
+        return f"{h}h {m}min"
+    if seconds >= 60:
+        m = seconds // 60
+        s = seconds % 60
+        return f"{m}m {s:02d}s"
+    return f"{seconds}s"
+
+
+def build_call_section(call_data: dict) -> list[dict]:
+    """Build Block Kit blocks for a call summary section (embedded in daily/weekly reports).
+
+    call_data keys: total, answered, missed, busy, failed,
+                    total_duration, avg_duration, linked_orders
+    """
+    total = call_data.get("total", 0)
+    if total == 0:
+        return [{
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": ":telephone_receiver: *LLAMADAS*\n_No se registraron llamadas._"}
+        }]
+
+    answered = call_data.get("answered", 0)
+    missed = call_data.get("missed", 0)
+    busy = call_data.get("busy", 0)
+    total_dur = call_data.get("total_duration", 0)
+    avg_dur = call_data.get("avg_duration", 0)
+    linked = call_data.get("linked_orders", 0)
+
+    lines = [
+        f":telephone_receiver: *LLAMADAS*",
+        f"  Total: {total} llamadas",
+        f"  - Contestadas: {answered} ({_fmt_duration(total_dur)})",
+    ]
+    if missed:
+        lines.append(f"  - No contestadas: {missed}")
+    if busy:
+        lines.append(f"  - Ocupado: {busy}")
+    lines.append(f"  Duracion media: {_fmt_duration(avg_dur)}")
+    if linked:
+        lines.append(f"  Llamadas vinculadas a pedidos: {linked}")
+
+    return [
+        {"type": "divider"},
+        {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}},
+    ]
+
+
+def build_call_report(call_data: dict) -> list[dict]:
+    """Build a full standalone call report with per-call detail.
+
+    call_data keys: date, calls (list of call records), summary (same as build_call_section)
+    """
+    date_str = _fmt_date(call_data["date"])
+    calls = call_data.get("calls", [])
+    summary = call_data.get("summary", {})
+
+    blocks = [
+        {
+            "type": "header",
+            "text": {"type": "plain_text", "text": f"Detalle de llamadas — {config.CLOSER_NAME} ({date_str})"}
+        },
+        {"type": "divider"},
+    ]
+
+    if not calls:
+        blocks.append({
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": "_No se registraron llamadas._"}
+        })
+        return blocks
+
+    total = summary.get("total", len(calls))
+    answered = summary.get("answered", 0)
+    total_dur = summary.get("total_duration", 0)
+    blocks.append({
+        "type": "section",
+        "text": {"type": "mrkdwn", "text": (
+            f"*Resumen:* {total} llamadas, {answered} contestadas, "
+            f"{_fmt_duration(total_dur)} total"
+        )}
+    })
+
+    detail_lines = []
+    for c in calls:
+        time_str = c.get("started_at", "")
+        if "T" in time_str:
+            time_str = time_str.split("T")[1][:5]
+        elif " " in time_str:
+            time_str = time_str.split(" ")[1][:5]
+
+        arrow = "->" if c.get("direction") == "outbound" else "<-"
+        phone = c.get("customer_phone", "?")
+        if len(phone) > 6:
+            phone = phone[:7] + "..."
+        dur = _fmt_duration(c.get("duration_seconds", 0))
+        disp = c.get("disposition", "")
+
+        line = f"  {time_str} {arrow} {phone} ({dur})"
+        if disp == "answered":
+            order = c.get("matched_order_number")
+            if order:
+                line += f" — Pedido {order}"
+        elif disp in ("no_answer", "cancel"):
+            line += " _No contestada_"
+        elif disp == "busy":
+            line += " _Ocupado_"
+        elif disp in ("call_failed", "failed"):
+            line += " _Fallida_"
+
+        detail_lines.append(line)
+
+    chunk_size = 15
+    for i in range(0, len(detail_lines), chunk_size):
+        chunk = detail_lines[i:i + chunk_size]
+        blocks.append({
+            "type": "section",
+            "text": {"type": "mrkdwn", "text": "\n".join(chunk)}
+        })
+
+    return blocks
+
+
 def build_cod_alert(order: dict, new_status: str) -> list[dict]:
     """Build a Slack alert for a COD status change."""
     delivered = new_status in ("ENTREGADO", "delivered")

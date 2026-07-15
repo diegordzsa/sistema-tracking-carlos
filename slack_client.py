@@ -151,6 +151,16 @@ def build_weekly_report(data: dict) -> list[dict]:
                 "text": {"type": "mrkdwn", "text": "*Detalle no entregados:*\n" + "\n".join(lines)}
             })
 
+    sheets_url = data.get("sheets_url")
+    if sheets_url:
+        blocks.append({
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f":clipboard: <{sheets_url}|Ver seguimiento completo COD en Google Sheets>",
+            }
+        })
+
     by_medium = data.get("by_medium", {})
     if by_medium:
         blocks.append({"type": "divider"})

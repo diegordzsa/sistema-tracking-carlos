@@ -20,6 +20,16 @@ ZADARMA_SIP = os.getenv("ZADARMA_SIP", "141683")
 def has_zadarma() -> bool:
     return bool(ZADARMA_API_KEY and ZADARMA_API_SECRET)
 
+GOOGLE_SHEETS_CREDENTIALS = os.getenv("GOOGLE_SHEETS_CREDENTIALS")
+GOOGLE_SHEETS_SPREADSHEET_ID = os.getenv(
+    "GOOGLE_SHEETS_SPREADSHEET_ID",
+    "1p9o_RHEyjtCojL8cHYL7p9Er4KZJBUTsyIqhf_BhIM8",
+)
+
+
+def has_google_sheets() -> bool:
+    return bool(GOOGLE_SHEETS_CREDENTIALS)
+
 DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"
 
 TIMEZONE = ZoneInfo("Europe/Madrid")

@@ -76,6 +76,19 @@ def run():
     logger.info("Checking tracking for %d total COD orders", len(all_cod))
     all_cod = _check_all_cod_tracking(all_cod)
 
+    sheets_synced = False
+    if config.has_google_sheets():
+        try:
+            import sheets_client
+            sync_result = sheets_client.sync_cod_orders(all_cod)
+            logger.info(
+                "Google Sheets sync: %d added, %d updated, %d unchanged",
+                sync_result["added"], sync_result["updated"], sync_result["unchanged"],
+            )
+            sheets_synced = True
+        except Exception:
+            logger.exception("Failed to sync COD orders to Google Sheets")
+
     cod_delivered = sum(1 for e in all_cod if e.get("cod_delivery_status") == "delivered")
     cod_returned = sum(1 for e in all_cod if e.get("cod_delivery_status") == "returned")
     cod_in_transit = sum(1 for e in all_cod if e.get("cod_delivery_status") in ("in_transit", "shipped", "out_for_delivery", "at_destination", "info_received"))
@@ -106,6 +119,10 @@ def run():
         "cod_other": cod_other,
         "non_delivered_details": non_delivered,
         "by_medium": dict(medium_counter),
+        "sheets_url": (
+            f"https://docs.google.com/spreadsheets/d/{config.GOOGLE_SHEETS_SPREADSHEET_ID}/edit"
+            if sheets_synced else None
+        ),
     }
 
     blocks = slack_client.build_weekly_report(report_data)

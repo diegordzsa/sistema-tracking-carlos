@@ -31,4 +31,5 @@ jobs:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           ZADARMA_API_KEY: ${{ secrets.ZADARMA_API_KEY }}
           ZADARMA_API_SECRET: ${{ secrets.ZADARMA_API_SECRET }}
+          GOOGLE_SHEETS_CREDENTIALS: ${{ secrets.GOOGLE_SHEETS_CREDENTIALS }}
         run: python weekly_report.py

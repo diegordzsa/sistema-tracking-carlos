@@ -26,6 +26,8 @@ jobs:
 
       - name: Run call report
         env:
+          SHOPIFY_CLIENT_ID: ${{ secrets.SHOPIFY_CLIENT_ID }}
+          SHOPIFY_CLIENT_SECRET: ${{ secrets.SHOPIFY_CLIENT_SECRET }}
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
           ZADARMA_API_KEY: ${{ secrets.ZADARMA_API_KEY }}
           ZADARMA_API_SECRET: ${{ secrets.ZADARMA_API_SECRET }}
